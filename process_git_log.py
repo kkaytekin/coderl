@@ -1,7 +1,6 @@
 import os
 import subprocess
 
-
 def get_hashes_from_txt(file_path, debug='vvv'):
     with open(file_path,'r') as f:
         log_list = f.read().splitlines()
@@ -16,65 +15,69 @@ def get_hashes_from_txt(file_path, debug='vvv'):
 def get_commits(path,debug = 'vvv'):
     '''
     path: path_to_repo_dir
-    out: list of commits {hash, commit msg}
+    out: list of commits, ordered from oldest to newest. Each commit is a dict with keys{commit_hash, commit_message, commit_body}
     '''
     # Save the current work_dir, because we are gonna return there in the end.
     cwd = os.getcwd()
-    
     assert os.path.isdir(path)
     os.chdir(path)
     print(f"Cwd: {os.getcwd()}")
     # Run the command and capture its output
-    hashes = subprocess.getoutput('git log --format="%H"')
-    hashes = hashes.split('\n')
-    commit_msgs = subprocess.getoutput('git log --format="%s"')
-    commit_msgs = commit_msgs.split('\n')
-    commit_msgs_and_bodies = subprocess.getoutput('git log --format="%sğ%b"')
-    commit_msgs_and_bodies = commit_msgs_and_bodies.split('ğ')
-    for i in range(len(commit_msgs_and_bodies)):
-        if commit_msgs_and_bodies[i][:1] == '\n':
-            commit_msgs_and_bodies[i]= commit_msgs_and_bodies[i][1:]
+    delimiter = "QXTZbhjIdReBbD"
+    hash_msg_splitter = "dTgNlDxcfwAgscWrdxyD"
+    msg_body_splitter = "srWqavXdfwFaxVdFwaSF"
+    commits = subprocess.getoutput(f'git log --format="%H{hash_msg_splitter}%s{msg_body_splitter}%b{delimiter}"')
+    commits = commits.split(delimiter)
+    # The last element is an empty string
+    assert commits[-1] == ''
+    commits = commits[:-1] 
+    out = []
+    for cmt in commits:
+        info = {}
+        # Get commit hash and message
+        cmt_hash, cmt_msg_and_body = cmt.split(hash_msg_splitter)
+        # From the second entry onwards, hashes start with newline. We dont want that
+        cmt_hash = cmt_hash.replace('\n','')
+        assert len(cmt_hash) == 40
+        info['commit_hash'] = cmt_hash
+
+        # Get the commit body. If no body, save empty string
+        if cmt_msg_and_body[-len(msg_body_splitter):] == msg_body_splitter:
+            cmt_msg = cmt_msg_and_body[:-len(msg_body_splitter)]
+            cmt_body = ''
+        else:
+            cmt_msg, cmt_body = cmt_msg_and_body.split(msg_body_splitter)
+        info["commit_message"] = cmt_msg
+        info['commit_body'] = cmt_body
+        out.append(info)
+    assert len(out) == len(commits)
+
     os.chdir(cwd)
     print(f"Cwd: {os.getcwd()}")
-    commits = []
-    for hash, msg in zip(hashes, commit_msgs):
-        commits.append({
-            'hash' : hash,
-            'commit_msg' : msg
-        })
-    # Add the commit bodies.
-    assert len(commits) == len(commit_msgs)
-    for i in range(len(commit_msgs)-1):
-        # Find the idx of the current commit message
-        idx = commit_msgs_and_bodies.index(commit_msgs[i])
-        # TODO: FIX
-        # The next item in the commit_messages_and_bodes should not be the next commit message
-        if commit_msgs_and_bodies[idx + 1] == commit_msgs[i+1]:
-            # There is no commit body.
-            commits[i]['commit_body'] = ''
-        else:
-            # There is commit body.
-            commits[i]['commit_body'] = commit_msgs_and_bodies[idx + 1]
-    # Handle the last one separately
-    idx = commit_msgs_and_bodies.index(commit_msgs[-1])
-    if idx == len(commit_msgs_and_bodies) - 1:
-        # This is the last element. There is no commit body.
-        commits[-1]['commit_body'] = ''
-    else:
-        # There is commit body.
-        commits[-1]['commit_body'] = commit_msgs_and_bodies[-1]
+    # Now the commits are listed from newest to oldest.
+    # We inverse the ordering
+    return out[::-1]
 
+def get_tag_hashes(path):
+    '''
+    # TODO
+    Get the commit hashes of tags for a more advanced dataset.
+    This dataset consists of harder examples because diffs are between distinct commits.
+    Each tag is a new version of the library. 
+    '''
+    pass
 
-
-    if debug == 'vvv':
-        print(commits)
-
-    return commits
-
-def get_hash_pairs(hashes):
+def get_hash_pairs(commits):
     '''
     Get pairs of hashes, from oldest the newest.
     '''
+    hash_pairs = []
+    for i in range(len(commits)-1):
+        old = commits[i]["commit_hash"]
+        new = commits[i+1]["commit_hash"]
+        hash_pairs.append((old,new))
+    return hash_pairs
 
 if __name__ == '__main__':
-    get_commits('/home/kagan/coderl/gym-md')
+    commits = get_commits('/home/kagan/coderl/gym-md')
+    diffs_list = get_hash_pairs(commits)
